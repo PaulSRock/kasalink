@@ -5,41 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
-	"log"
-	"net"
-	"time"
 )
-
-var errTooLarge = errors.New("bytes.Buffer: too large")
-
-// TalkToPlug attempts to connect to the Kasa Device and retrieve it's system info
-func TalkToPlug(KasaCommand string) (response string, err error) {
-	var (
-		tplinkClient  net.Conn
-		hs300Location = "10.0.0.25:9999"
-		getSystemInfo []byte
-	)
-	if tplinkClient, err = net.DialTimeout("tcp", hs300Location, time.Duration(10)*time.Second); err != nil {
-		return
-	}
-	defer closer(tplinkClient)
-	getSystemInfo = encrypt(KasaCommand)
-	if _, err = tplinkClient.Write(getSystemInfo); err != nil {
-		return
-	}
-	var bb = new(myBuff)
-	var bytesRead int64
-	bytesRead, err = bb.readFrom(tplinkClient)
-	//_, err = bb.readFrom(tplinkClient)
-	if err != nil {
-		return
-	}
-	log.Printf("Bytes Read: %d\n", bytesRead)
-	if bb.Len() >= 4 {
-		return decrypt(bb.buf[4:]), nil
-	}
-	return
-}
 
 //So most of everything below this is pulled whole hog out of bytes.Buffer, but I needed a custom read to prevent us
 //from hanging until the connection timed out.

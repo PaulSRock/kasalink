@@ -36,7 +36,7 @@ func encrypt(plaintext string) []byte {
 	return ciphertext
 }
 
-func decrypt(ciphertext []byte) string {
+func decrypt(ciphertext []byte) []byte {
 	var (
 		key     = byte(0xAB)
 		nextKey byte
@@ -48,5 +48,5 @@ func decrypt(ciphertext []byte) string {
 		ciphertext[i] = ciphertext[i] ^ key
 		key = nextKey
 	}
-	return string(ciphertext)
+	return ciphertext
 }

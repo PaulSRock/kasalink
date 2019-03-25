@@ -1,311 +1,387 @@
 package kasalink
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
-	"net"
 	"strings"
 	"time"
 )
 
-// KasaGetSystemInfo is the JSON used to query device information from a Kasa API device
-const KasaGetSystemInfo = `{"system":{"get_sysinfo":{}}}`
+const (
+	getSysInfo                         = `{"system":{"get_sysinfo":{}}}`
+	reboot                             = `{"system":{"reboot":{"delay":1}}}`
+	turnOn                             = `{"system":{"set_relay_state":{"state":1}}}`
+	turnOff                            = `{"system":{"set_relay_state":{"state":0}}}`
+	turnOffLED                         = `{"system":{"set_led_off":{"off":1}}}`
+	turnOnLED                          = `{"system":{"set_led_off":{"off":0}}}`
+	getDeviceIcon                      = `{"system":{"get_dev_icon":}}`
+	getCloudInfo                       = `{"cnCloud":{"get_info":}}`
+	getFirmwareList                    = `{"cnCloud":{"get_intl_fw_list":{}}}`
+	setDefaultCloudURL                 = `{"cnCloud":{"set_server_url":{"server":"devs.tplinkcloud.com"}}}`
+	unbindDeviceFromCloud              = `{"cnCloud":{"unbind":}}`
+	getDeviceTime                      = `{"time":{"get_time":}}`
+	getDeviceTimeZone                  = `{"time":{"get_timezone":}}`
+	getCurrentAndVoltage               = `{"emeter":{"get_realtime":{}}}`
+	getVandIGain                       = `{"emeter":{"get_vgain_igain":{}}}`
+	scanForAccessPoints                = `{"netif":{"get_scaninfo":{"refresh":1}}}`
+	setDeviceAliasFormatString         = "{\"system\":{\"set_dev_alias\":{\"alias\":\"%s\"}}}"
+	latLongFormatString                = "{\"system\":{\"set_dev_location\":{\"longitude\":%f,\"latitude\":%f}}}"
+	setDeviceIconFormatString          = "{\"system\":{\"set_dev_icon\":{\"icon\":\"%s\",\"hash\":\"%s\"}}}"
+	eraseEnergyMeterStats              = `{"emeter":{"erase_emeter_stat":}}`
+	connecToAccessPointFormatString    = "{\"netif\":{\"set_stainfo\":{\"ssid\":\"%s\",\"password\":\"%s\",\"key_type\":3}}}"
+	setCloudURLFormatString            = "{\"cnCloud\":{\"set_server_url\":{\"server\":\"%s\"}}}"
+	cloudConnectFormatString           = "{\"cnCloud\":{\"bind\":{\"username\":\"%s\", \"password\":\"%s\"}}}"
+	setDeviceTimeFormatString          = "{\"time\":{\"set_timezone\":{\"year\":%d,\"month\":%d,\"mday\":%d,\"hour\":%d,\"min\":%d,\"sec\":%d,\"index\":%d}}}"
+	setVandIGainFormatString           = "{\"emeter\":{\"set_vgain_igain\":{\"vgain\":%d,\"igain\":%d}}}"
+	startEMeterCalibrationFormatString = "{\"emeter\":{\"start_calibration\":{\"vtarget\":%d,\"itarget\":%d}}}"
+	getDailyEnergyStatsFormatString    = "{\"emeter\":{\"get_daystat\":{\"month\":%d,\"year\":%d}}}"
+	getMonthlyEnergyStatsFormatString  = "{\"emeter\":{\"\"get_monthstat\":{\"year\":%d}}}"
+)
 
-// KasaReboot is the JSON used to issue a reboot command to a Kasa API device
-const KasaReboot = `{"system":{"reboot":{"delay":1}}}`
-
-// KasaFactorReset is the JSON used to issue a factory reset command to a Kasa API device
-const KasaFactorReset = `{"system":{"reset":{"delay":1}}}`
-
-// KasaTurnDeviceOn is the JSON used to issue a power on command to every socket on a Kasa enabled device
-// It does not turn on the Kasa Device itself.
-const KasaTurnDeviceOn = `{"system":{"set_relay_state":{"state":1}}}`
-
-// KasaTurnPlugOn is the JSON used to issue a power on command to individual sockets on a Kasa enabled device
-// It does not turn on the Kasa Device itself.
-func KasaTurnPlugOn(deviceID string, children ...int) string {
-	var (
-		sb          strings.Builder
-		err         error
-		finalString string
-	)
-	if _, err = sb.WriteString(`{"context":{"child_ids":[`); err != nil {
-		log.Fatal(err)
+// GetSystemInfo is the is the Struct that contains info about the Kasa Device
+func (kpp *KasaPowerPlug) GetSystemInfo() (si *SystemInfo, err error) {
+	if kpp.SysInfo != nil {
+		return kpp.SysInfo, nil
 	}
-	for _, child := range children {
-		if _, err = sb.WriteString(fmt.Sprintf(`"%s%02d",`, deviceID, child)); err != nil {
-			log.Fatal(err)
-		}
+	var b []byte
+	b, err = kpp.querySystemInfo()
+	if err != nil {
+		return
 	}
-	if _, err = sb.WriteString(`]},"system":{"set_relay_state":{"state":1}}}`); err != nil {
-		log.Fatal(err)
-	}
-	finalString = sb.String()
-	return trimJSONArray(finalString)
+	kpp.SysInfo = &SystemInfo{}
+	err = json.Unmarshal(b, kpp.SysInfo)
+	return
 }
 
-// KasaTurnDeviceOff is the JSON used to issue a power off command to a Kasa Enabled switch or socket
+func (kpp *KasaPowerPlug) querySystemInfo(children ...int) ([]byte, error) {
+	if children != nil {
+		return kpp.tellChild(getSysInfo, children...)
+	}
+	return kpp.talkToPlug(getSysInfo)
+}
+
+// Reboot is the JSON used to issue a reboot command to a Kasa API device
+func (kpp *KasaPowerPlug) Reboot(children ...int) ([]byte, error) {
+	if children != nil {
+		return kpp.tellChild(reboot, children...)
+	}
+	return kpp.talkToPlug(reboot)
+}
+
+// TurnDeviceOn is the JSON used to issue a power on command to every socket on a Kasa enabled device
+// It does not turn on the Kasa Device itself.
+func (kpp *KasaPowerPlug) TurnDeviceOn(children ...int) ([]byte, error) {
+	if children != nil {
+		return kpp.tellChild(turnOn, children...)
+	}
+	return kpp.talkToPlug(turnOn)
+}
+
+// TurnDeviceOff is the JSON used to issue a power off command to a Kasa Enabled switch or socket
 // It does not turn off the Kasa Device itself.
-const KasaTurnDeviceOff = `{"system":{"set_relay_state":{"state":0}}}`
-
-// KasaTurnPlugOff is the JSON used to issue a power on command to a Kasa Enabled switch or socket
-// It does not turn on the Kasa Device itself.
-func KasaTurnPlugOff(deviceID string, children ...int) string {
-	var (
-		sb          strings.Builder
-		err         error
-		finalString string
-	)
-
-	if _, err = sb.WriteString(`{"context":{"child_ids":[`); err != nil {
-		log.Fatal(err)
+func (kpp *KasaPowerPlug) TurnDeviceOff(children ...int) ([]byte, error) {
+	if children != nil {
+		return kpp.tellChild(turnOff, children...)
 	}
-	for _, child := range children {
-		if _, err = sb.WriteString(fmt.Sprintf(`"%s%02d",`, deviceID, child)); err != nil {
-			log.Fatal(err)
-		}
+	return kpp.talkToPlug(turnOff)
+}
+
+// DisableLED is the JSON used to turn off the LED indicator for a Kasa enabled switch or socket
+func (kpp *KasaPowerPlug) DisableLED() (wrapper *KasaResponse, err error) {
+	var jsonBytes []byte
+	jsonBytes, err = kpp.talkToPlug(turnOnLED)
+	if err != nil {
+		return
 	}
-	if _, err = sb.WriteString(`]},"system":{"set_relay_state":{"state":0}}}`); err != nil {
-		log.Fatal(err)
+	log.Printf("%s", jsonBytes)
+	wrapper = &KasaResponse{}
+	err = json.Unmarshal(jsonBytes, wrapper)
+	return
+}
+
+// EnableLED is the JSON used to turn on the LED indicator for a Kasa enabled switch or socket
+func (kpp *KasaPowerPlug) EnableLED() (wrapper *KasaResponse, err error) {
+	var jsonBytes []byte
+	jsonBytes, err = kpp.talkToPlug(turnOnLED)
+	if err != nil {
+		return
 	}
-	finalString = sb.String()
-	return trimJSONArray(finalString)
+	log.Printf("%s", jsonBytes)
+	wrapper = &KasaResponse{}
+	err = json.Unmarshal(jsonBytes, wrapper)
+	return
 }
 
-// KasaDisableLED is the JSON used to turn off the LED indicator for a Kasa enabled switch or socket
-const KasaDisableLED = `{"system":{"set_led_off":{"off":1}}}`
-
-// KasaEnableLED is the JSON used to turn on the LED indicator for a Kasa enabled switch or socket
-const KasaEnableLED = `{"system":{"set_led_off":{"off":0}}}`
-
-//KasaSetDeviceAliasString takes a string to assign as the device alias and returns the JSON required to do so
-func KasaSetDeviceAliasString(alias string) string {
-	return fmt.Sprintf("{\"system\":{\"set_dev_alias\":{\"alias\":\"%s\"}}}", alias)
-}
-
-// KasaSetDeviceMACString takes a string and returns the JSON required to do so
-// If the input string fails to validate as a MAC address this function returns an empty string and an error
-func KasaSetDeviceMACString(newMAC string) (formatedJSON string, err error) {
-	if _, err = net.ParseMAC(newMAC); err != nil {
-		return "", err
+// SetDeviceAliasString takes a string to assign as the device alias
+func (kpp *KasaPowerPlug) SetDeviceAliasString(alias string, children ...int) ([]byte, error) {
+	if children != nil {
+		return kpp.tellChild(fmt.Sprintf(setDeviceAliasFormatString, alias), children...)
 	}
-	formatedJSON = fmt.Sprintf("{\"system\":{\"set_mac_addr\":{\"mac\":\"%s\"}}}", newMAC)
-	return formatedJSON, nil
+	return kpp.talkToPlug(fmt.Sprintf(setDeviceAliasFormatString, alias))
 }
 
-//KasaSetDeviceID takes a string and returns the JSON required to set the new Device ID
-func KasaSetDeviceID(newDeviceID string) string {
-	return fmt.Sprintf("{\"system\":{\"set_device_id\":{\"deviceId\":\"%s\"}}}", newDeviceID)
+// SetLongLat returns the JSON required to set the location of a device
+func (kpp *KasaPowerPlug) SetLongLat(long, lat float64) ([]byte, error) {
+	return kpp.talkToPlug(fmt.Sprintf(latLongFormatString, long, lat))
 }
 
-// KasaSetHardwareID takes a string and returns the JSON required to set the new Hardware ID
-func KasaSetHardwareID(newHardwareID string) string {
-	return fmt.Sprintf("{\"system\":{\"set_hw_id\":{\"hwId\":\"%s\"}}}", newHardwareID)
+// GetDeviceIcon is the JSON to get the device icon
+func (kpp *KasaPowerPlug) GetDeviceIcon(children ...int) ([]byte, error) {
+	if children != nil {
+		return kpp.tellChild(getDeviceIcon)
+	}
+	return kpp.talkToPlug(getDeviceIcon)
 }
 
-//KasaSetLongLat returns the JSON required to set the location of a device
-func KasaSetLongLat(long, lat float64) string {
-	return fmt.Sprintf("{\"system\":{\"set_dev_location\":{\"longitude\":%f,\"latitude\":%f}}}", long, lat)
+// SetDeviceIcon returns the JSON to set the devce icon
+func (kpp *KasaPowerPlug) SetDeviceIcon(s1, s2 string, children ...int) ([]byte, error) {
+	if children != nil {
+		return kpp.tellChild(fmt.Sprintf(setDeviceIconFormatString, s1, s2), children...)
+	}
+	return kpp.talkToPlug(fmt.Sprintf(setDeviceIconFormatString, s1, s2))
 }
-
-//KasaBootloaderCheck is the JSON to perform a uBoot bootloader check
-const KasaBootloaderCheck = `{"system":{"test_check_uboot":}}`
-
-//KasaGetDeviceIcon is the JSON to get the device icon
-const KasaGetDeviceIcon = `{"system":{"get_dev_icon":}}`
-
-//KasaSetDeviceIcon returns the JSON to set the devce icon
-func KasaSetDeviceIcon(s1, s2 string) string {
-	return fmt.Sprintf("{\"system\":{\"set_dev_icon\":{\"icon\":\"%s\",\"hash\":\"%s\"}}}", s1, s2)
-}
-
-//Set Test Mode (command only accepted coming from IP 192.168.1.100)
-//const KasaSetTestMode  = "{"system":{"set_test_mode":{"enable":1}}}"
-
-//KasaDownloadFirmaware returns the JSON to download firmware from a given URL
-func KasaDownloadFirmaware(url string) string {
-	return fmt.Sprintf("{\"system\":{\"download_firmware\":{\"url\":\"%s\"}}}", url)
-}
-
-//KasaGetDownloadState is the JSON to get current download state
-const KasaGetDownloadState = `{"system":{"get_download_state":{}}}`
-
-//KasaFlashDownloadedFirmware is the JSON to initiate a flash for the currently downloaded firmware
-const KasaFlashDownloadedFirmware = `{"system":{"flash_firmware":{}}}`
-
-//KasaCheckNewConfig is the JSON to check the current configuration of the device
-const KasaCheckNewConfig = `{"system":{"check_new_config":}}`
 
 //WLAN Commands
 
-//KasaScanForAccessPoints is the JSON to tell the device to scan for list of available wireless access points
-const KasaScanForAccessPoints = `{"netif":{"get_scaninfo":{"refresh":1}}}`
-
-//KasaConnectToAccessPoint Connect to AP with given SSID and Password
-func KasaConnectToAccessPoint(ssid, passwd string) string {
-	return fmt.Sprintf("{\"netif\":{\"set_stainfo\":{\"ssid\":\"%s\",\"password\":\"%s\",\"key_type\":3}}}", ssid, passwd)
+// ScanForAccessPoints is the JSON to tell the device to scan for list of available wireless access points
+func (kpp *KasaPowerPlug) ScanForAccessPoints(children ...int) ([]byte, error) {
+	return kpp.talkToPlug(scanForAccessPoints)
 }
 
-//Cloud Commands
-
-//KasaGetCloudInfo is the JSON to retrieve the current cloud configuration (Server, Username, Connection Status)
-const KasaGetCloudInfo = `{"cnCloud":{"get_info":}}`
-
-//KasaGetFirmwareFromCloud is the JSON to retrieve a list of firmware from the cloud server
-const KasaGetFirmwareFromCloud = `{"cnCloud":{"get_intl_fw_list":{}}}`
-
-//KasaSetServerURL returns the JSON required to set a new server URL
-func KasaSetServerURL(newServer string) string {
-	return fmt.Sprintf("{\"cnCloud\":{\"set_server_url\":{\"server\":\"%s\"}}}", newServer)
+// ConnectToAccessPoint Connect to AP with given SSID and Password
+func (kpp *KasaPowerPlug) ConnectToAccessPoint(ssid, passwd string) ([]byte, error) {
+	return kpp.talkToPlug(fmt.Sprintf(connecToAccessPointFormatString, ssid, passwd))
 }
 
-//KasaSetDefaultServerURL is the JSON to set the default server URL (devs.tplinkcloud.com)
-const KasaSetDefaultServerURL = `{"cnCloud":{"set_server_url":{"server":"devs.tplinkcloud.com"}}}`
+//Cloud Configuration Commands
 
-//KasaConnectWithUserPass returns the JSON required to connect to the TP-Link Cloud service with a username & password
-func KasaConnectWithUserPass(user, pass string) string {
-	return fmt.Sprintf("{\"cnCloud\":{\"bind\":{\"username\":\"%s\", \"password\":\"%s\"}}}", user, pass)
+// GetCloudInfo is the JSON to retrieve the current cloud configuration (Server, Username, Connection Status)
+func (kpp *KasaPowerPlug) GetCloudInfo() ([]byte, error) {
+	return kpp.talkToPlug(getCloudInfo)
 }
 
-//KasaUnregisterFromCloud is the JSON to unregister the device from a TP-Link Cloud Account
-const KasaUnregisterFromCloud = `{"cnCloud":{"unbind":}}`
+// GetFirmwareFromCloud is the JSON to retrieve a list of firmware from the cloud server
+func (kpp *KasaPowerPlug) GetFirmwareFromCloud() ([]byte, error) {
+	return kpp.talkToPlug(getFirmwareList)
+}
+
+// SetServerURL returns the JSON required to set a new server URL
+func (kpp *KasaPowerPlug) SetServerURL(newServer string) ([]byte, error) {
+	return kpp.talkToPlug(fmt.Sprintf(setCloudURLFormatString, newServer))
+}
+
+// SetDefaultServerURL is the JSON to set the default server URL (devs.tplinkcloud.com)
+func (kpp *KasaPowerPlug) SetDefaultServerURL() ([]byte, error) {
+	return kpp.talkToPlug(setDefaultCloudURL)
+}
+
+// ConnectWithUserPass returns the JSON required to connect to the TP-Link Cloud service with a username & password
+func (kpp *KasaPowerPlug) ConnectWithUserPass(user, pass string) ([]byte, error) {
+	return kpp.talkToPlug(fmt.Sprintf(cloudConnectFormatString, user, pass))
+}
+
+// UnregisterFromCloud is the JSON to unregister the device from a TP-Link Cloud Account
+func (kpp *KasaPowerPlug) UnregisterFromCloud() ([]byte, error) {
+	return kpp.talkToPlug(unbindDeviceFromCloud)
+}
 
 //Time Commands
 
-//KasaGetDeviceTime is the JSON to retrieve the current device time
-const KasaGetDeviceTime = `{"time":{"get_time":}}`
+// GetDeviceTime is the JSON to retrieve the current device time
+func (kpp *KasaPowerPlug) GetDeviceTime() ([]byte, error) {
+	return kpp.talkToPlug(getDeviceTime)
+}
 
-//KasaGetDeviceTimezone is the JSON to get the current device timezone
-const KasaGetDeviceTimezone = `{"time":{"get_timezone":}}`
+// GetDeviceTimezone is the JSON to get the current device timezone
+func (kpp *KasaPowerPlug) GetDeviceTimezone() ([]byte, error) {
+	return kpp.talkToPlug(getDeviceTimeZone)
+}
 
-//KasaSetDeviceTimeZone returns the JSON to set the time, date and time zone
-func KasaSetDeviceTimeZone(year, month, day, hour, min, sec, tzindex int) string {
-	return fmt.Sprintf("{\"time\":{\"set_timezone\":{\"year\":%d,\"month\":%d,\"mday\":%d,\"hour\":%d,\"min\":%d,\"sec\":%d,\"index\":%d}}}",
-		year, month, day, hour, min, sec, tzindex)
+// SetDeviceTimeZone returns the JSON to set the time, date and time zone
+func (kpp *KasaPowerPlug) SetDeviceTimeZone(t *time.Time) ([]byte, error) {
+	var _, offset = t.Zone()
+	return kpp.talkToPlug(fmt.Sprintf(setDeviceTimeFormatString,
+		t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), offset))
 }
 
 //EMeter Energy Usage Statistics Commands
 //(for TP-Link HS110)
 
-//KasaGetRealtimeCurrentAndVoltage is the JSON to get realtime current and voltage readings
-const KasaGetRealtimeCurrentAndVoltage = `{"emeter":{"get_realtime":{}}}`
-
-//KasaGetVGainAndIGain is the JSON to get EMeter VGain and IGain settings
-const KasaGetVGainAndIGain = `{"emeter":{"get_vgain_igain":{}}}`
-
-//KasaSetVGainAndIGain returns the JSON to set EMeter VGain and Igain values
-func KasaSetVGainAndIGain(newVGain, newIGain int) string {
-	return fmt.Sprintf("{\"emeter\":{\"set_vgain_igain\":{\"vgain\":%d,\"igain\":%d}}}", newVGain, newIGain)
+// GetRealtimeCurrentAndVoltage is the JSON to get realtime current and voltage readings
+func (kpp *KasaPowerPlug) GetRealtimeCurrentAndVoltage(children ...int) (response *KasaResponse, err error) {
+	var (
+		jsonBytes []byte
+	)
+	if children != nil {
+		jsonBytes, err = kpp.tellChild(getCurrentAndVoltage, children...)
+	} else {
+		jsonBytes, err = kpp.talkToPlug(getCurrentAndVoltage)
+	}
+	if err != nil {
+		return
+	}
+	err = json.Unmarshal(jsonBytes, &response)
+	if err != nil {
+		return
+	}
+	return
 }
 
-//KasaStartEMeterCalibration returns the JSON to start EMeter calibration
-func KasaStartEMeterCalibration(vTarget, iTarget int) string {
-	return fmt.Sprintf("{\"emeter\":{\"start_calibration\":{\"vtarget\":%d,\"itarget\":%d}}}", vTarget, iTarget)
+// GetVGainAndIGain is the JSON to get EMeter VGain and IGain settings
+func (kpp *KasaPowerPlug) GetVGainAndIGain(children ...int) ([]byte, error) {
+	if children != nil {
+		return kpp.tellChild(getVandIGain, children...)
+	}
+	return kpp.talkToPlug(getVandIGain)
 }
 
-//KasaGetDailyStatsForMonthYear returns the JSON to get daily statistic for a given month
-func KasaGetDailyStatsForMonthYear(month, year int) (formattedJSON string, err error) {
+// SetVGainAndIGain returns the JSON to set EMeter VGain and Igain values
+func (kpp *KasaPowerPlug) SetVGainAndIGain(newVGain, newIGain int, children ...int) ([]byte, error) {
+	if children != nil {
+		return kpp.tellChild(fmt.Sprintf(setVandIGainFormatString, newVGain, newIGain), children...)
+	}
+	return kpp.talkToPlug(fmt.Sprintf(setVandIGainFormatString, newVGain, newIGain))
+}
+
+// StartEMeterCalibration returns the JSON to start EMeter calibration
+func (kpp *KasaPowerPlug) StartEMeterCalibration(vTarget, iTarget int, children ...int) ([]byte, error) {
+	if children != nil {
+		return kpp.tellChild(fmt.Sprintf(startEMeterCalibrationFormatString, vTarget, iTarget), children...)
+	}
+	return kpp.talkToPlug(fmt.Sprintf(startEMeterCalibrationFormatString, vTarget, iTarget))
+}
+
+// GetDailyStatsForMonthYear returns the JSON to get daily statistic for a given month
+func (kpp *KasaPowerPlug) GetDailyStatsForMonthYear(month, year int, children ...int) ([]byte, error) {
+	var jsonCmd string
 	if month > 11 || month < 0 {
-		return "", fmt.Errorf("%d is an invalid value for month [0-11]", month)
+		return nil, fmt.Errorf("%d is an invalid value for month [0-11]", month)
 	}
 	if year < 0 || year > time.Now().Year() {
-		return "", fmt.Errorf("%d is an invalid value for year", year)
+		return nil, fmt.Errorf("%d is an invalid value for year", year)
 	}
 	if year >= time.Now().Year() && month > int(time.Now().Month()) {
-		return "", fmt.Errorf("%d/%d appear to be a month/year in the future", month, year)
+		return nil, fmt.Errorf("%d/%d appear to be a month/year in the future", month, year)
 	}
-	formattedJSON = fmt.Sprintf("{\"emeter\":{\"get_daystat\":{\"month\":%d,\"year\":%d}}}", month, year)
-	return formattedJSON, nil
+	jsonCmd = fmt.Sprintf(getDailyEnergyStatsFormatString, month, year)
+	if children != nil {
+		return kpp.tellChild(jsonCmd, children...)
+	}
+	return kpp.talkToPlug(jsonCmd)
 }
 
-//KasaGetMonthlyStatsForYear returns the JSON required to get monthly statistic for given year
-func KasaGetMonthlyStatsForYear(year int) (formattedJSON string, err error) {
+// GetMonthlyStatsForYear returns the JSON required to get monthly statistic for given year
+func (kpp *KasaPowerPlug) GetMonthlyStatsForYear(year int, children ...int) ([]byte, error) {
+	var jsonCmd string
 	if year > time.Now().Year() {
-		return "", fmt.Errorf("%d appears to be in the future", year)
+		return nil, fmt.Errorf("%d appears to be in the future", year)
 	}
-	formattedJSON = fmt.Sprintf("{\"emeter\":{\"\"get_monthstat\":{\"year\":%d}}}", year)
-	return formattedJSON, nil
+	jsonCmd = fmt.Sprintf(getMonthlyEnergyStatsFormatString, year)
+	if children != nil {
+		return kpp.tellChild(jsonCmd, children...)
+	}
+	return kpp.talkToPlug(jsonCmd)
 }
 
-//KasaEraseEMeterStats is the JSON to erase all EMeter statistics
-const KasaEraseEMeterStats = `{"emeter":{"erase_emeter_stat":}}`
+// EraseEMeterStats is the JSON to erase all EMeter statistics
+func (kpp *KasaPowerPlug) EraseEMeterStats(children ...int) ([]byte, error) {
+	if children != nil {
+		return kpp.tellChild(eraseEnergyMeterStats, children...)
+	}
+	return kpp.talkToPlug(eraseEnergyMeterStats)
+}
 
 //Schedule Commands
 //(action to perform regularly on given weekdays)
 
-//KasaGetNexedScheduledAction is the JSON to get the next scheduled action
-const KasaGetNexedScheduledAction = `{"schedule":{"get_next_action":}}`
-
-//KasaGetScheduleRulesList is the JSON to get the schedule rules list
-const KasaGetScheduleRulesList = `{"schedule":{"get_rules":}}`
-
-//KasaAddScheduleRule returns the JSON required to add a new schedule rule
-func KasaAddScheduleRule() string {
-	return fmt.Sprintf("{\"schedule\":{\"add_rule\":{\"stime_opt\":0,\"wday\":[1,0,0,1,1,0,0],\"smin\":1014,\"enable\":1,\"repeat\":1,\"etime_opt\":-1,\"name\":\"lights on\",\"eact\":-1,\"month\":0,\"sact\":1,\"year\":0,\"longitude\":0,\"day\":0,\"force\":0,\"latitude\":0,\"emin\":0},\"set_overall_enable\":{\"enable\":1}}}")
+// GetNexedScheduledAction is the JSON to get the next scheduled action
+func (kpp *KasaPowerPlug) GetNexedScheduledAction(children ...int) ([]byte, error) {
+	return kpp.talkToPlug(`{"schedule":{"get_next_action":}}`)
 }
 
-//KasaEditScheduleRule returns the JSON required to edit a schedule rule with the given ID
-func KasaEditScheduleRule() string {
-	return fmt.Sprintf("{\"schedule\":{\"edit_rule\":{\"stime_opt\":0,\"wday\":[1,0,0,1,1,0,0],\"smin\":1014,\"enable\":1,\"repeat\":1,\"etime_opt\":-1,\"id\":\"4B44932DFC09780B554A740BC1798CBC\",\"name\":\"lights on\",\"eact\":-1,\"month\":0,\"sact\":1,\"year\":0,\"longitude\":0,\"day\":0,\"force\":0,\"latitude\":0,\"emin\":0}}}")
+// GetScheduleRulesList is the JSON to get the schedule rules list
+func (kpp *KasaPowerPlug) GetScheduleRulesList(children ...int) ([]byte, error) {
+	return kpp.talkToPlug(`{"schedule":{"get_rules":}}`)
 }
 
-//KasaDeleteScheduleRule returns the JSON to delete a schedule rule with the given ID
-func KasaDeleteScheduleRule(id string) string {
-	return fmt.Sprintf("{\"schedule\":{\"delete_rule\":{\"id\":\"%s\"}}}", id)
+// AddScheduleRule returns the JSON required to add a new schedule rule
+func (kpp *KasaPowerPlug) AddScheduleRule(children ...int) ([]byte, error) {
+	return kpp.talkToPlug(fmt.Sprintf("{\"schedule\":{\"add_rule\":{\"stime_opt\":0,\"wday\":[1,0,0,1,1,0,0],\"smin\":1014,\"enable\":1,\"repeat\":1,\"etime_opt\":-1,\"name\":\"lights on\",\"eact\":-1,\"month\":0,\"sact\":1,\"year\":0,\"longitude\":0,\"day\":0,\"force\":0,\"latitude\":0,\"emin\":0},\"set_overall_enable\":{\"enable\":1}}}"))
 }
 
-//KasaDeleteAllScheduleRules is the JSON to delete all schedule rules and erase statistics
-const KasaDeleteAllScheduleRules = `{"schedule":{"delete_all_rules":,"erase_runtime_stat":}}`
+// EditScheduleRule returns the JSON required to edit a schedule rule with the given ID
+func (kpp *KasaPowerPlug) EditScheduleRule(children ...int) ([]byte, error) {
+	return kpp.talkToPlug(fmt.Sprintf("{\"schedule\":{\"edit_rule\":{\"stime_opt\":0,\"wday\":[1,0,0,1,1,0,0],\"smin\":1014,\"enable\":1,\"repeat\":1,\"etime_opt\":-1,\"id\":\"4B44932DFC09780B554A740BC1798CBC\",\"name\":\"lights on\",\"eact\":-1,\"month\":0,\"sact\":1,\"year\":0,\"longitude\":0,\"day\":0,\"force\":0,\"latitude\":0,\"emin\":0}}}"))
+}
+
+// DeleteScheduleRule returns the JSON to delete a schedule rule with the given ID
+func (kpp *KasaPowerPlug) DeleteScheduleRule(id string) ([]byte, error) {
+	return kpp.talkToPlug(fmt.Sprintf("{\"schedule\":{\"delete_rule\":{\"id\":\"%s\"}}}", id))
+}
+
+// DeleteAllScheduleRules is the JSON to delete all schedule rules and erase statistics
+func (kpp *KasaPowerPlug) DeleteAllScheduleRules(children ...int) ([]byte, error) {
+	return kpp.talkToPlug(`{"schedule":{"delete_all_rules":,"erase_runtime_stat":}}`)
+}
 
 //Countdown Rule Commands
 //(action to perform after number of seconds)
 
-//KasaGetCountdownRule is the JSON toge the existing countdown rule
-const KasaGetCountdownRule = `{"count_down":{"get_rules":}}`
-
-//KasaAddNewCountdownRule is the JSON to add a new countdown rule
-func KasaAddNewCountdownRule(enable, delay, act int, name string) string {
-	return fmt.Sprintf("{\"count_down\":{\"add_rule\":{\"enable\":%d,\"delay\":%d,\"act\":%d,\"name\":\"%s\"}}}",
-		enable, delay, act, name)
+// GetCountdownRule is the JSON toge the existing countdown rule
+func (kpp *KasaPowerPlug) GetCountdownRule(children ...int) ([]byte, error) {
+	return kpp.talkToPlug(`{"count_down":{"get_rules":}}`)
 }
 
-//KasaEditCountdownRule returns the JSON to edit a countdown rule with the given ID
-func KasaEditCountdownRule(enable, delay, act int, name, id string) string {
-	return fmt.Sprintf("{\"count_down\":{\"edit_rule\":{\"enable\":%d,\"id\":\"%s\",\"delay\":%d,\"act\":%d,\"name\":\"%s\"}}}",
-		enable, id, delay, act, name)
+// AddNewCountdownRule is the JSON to add a new countdown rule
+func (kpp *KasaPowerPlug) AddNewCountdownRule(enable, delay, act int, name string) ([]byte, error) {
+	return kpp.talkToPlug(fmt.Sprintf("{\"count_down\":{\"add_rule\":{\"enable\":%d,\"delay\":%d,\"act\":%d,\"name\":\"%s\"}}}",
+		enable, delay, act, name))
 }
 
-//KasaDeleteCountdownRule returns the JSON to delete a countdown rule with the given ID
-func KasaDeleteCountdownRule(id string) string {
-	return fmt.Sprintf("{\"count_down\":{\"delete_rule\":{\"id\":\"%s\"}}}", id)
+// EditCountdownRule returns the JSON to edit a countdown rule with the given ID
+func (kpp *KasaPowerPlug) EditCountdownRule(enable, delay, act int, name, id string) ([]byte, error) {
+	return kpp.talkToPlug(fmt.Sprintf("{\"count_down\":{\"edit_rule\":{\"enable\":%d,\"id\":\"%s\",\"delay\":%d,\"act\":%d,\"name\":\"%s\"}}}",
+		enable, id, delay, act, name))
 }
 
-//KasaDeleteAllCountdownRules is the JSON to delete all countdown rules
-const KasaDeleteAllCountdownRules = `{"count_down":{"delete_all_rules":}}`
+// DeleteCountdownRule returns the JSON to delete a countdown rule with the given ID
+func (kpp *KasaPowerPlug) DeleteCountdownRule(id string) ([]byte, error) {
+	return kpp.talkToPlug(fmt.Sprintf("{\"count_down\":{\"delete_rule\":{\"id\":\"%s\"}}}", id))
+}
+
+// DeleteAllCountdownRules is the JSON to delete all countdown rules
+func (kpp *KasaPowerPlug) DeleteAllCountdownRules(children ...int) ([]byte, error) {
+	return kpp.talkToPlug(`{"count_down":{"delete_all_rules":}}`)
+}
 
 //Anti-Theft Rule Commands (aka Away Mode)
 //(period of time during which device will be randomly turned on and off to deter thieves)
 
-//KasaGetAntiTheftRules is the JSON to retrieve the existing anti-theft rule set
-const KasaGetAntiTheftRules = `{"anti_theft":{"get_rules":}}`
-
-//KasaAddAntiTheftRule returns the JSON reuqired to add a new anti-theft rule
-func KasaAddAntiTheftRule() string {
-	return fmt.Sprintf("{\"anti_theft\":{\"add_rule\":{\"stime_opt\":0,\"wday\":[0,0,0,1,0,1,0],\"smin\":987,\"enable\":1,\"frequency\":5,\"repeat\":1,\"etime_opt\":0,\"duration\":2,\"name\":\"test\",\"lastfor\":1,\"month\":0,\"year\":0,\"longitude\":0,\"day\":0,\"latitude\":0,\"force\":0,\"emin\":1047},\"set_overall_enable\":1}}")
+// GetAntiTheftRules is the JSON to retrieve the existing anti-theft rule set
+func (kpp *KasaPowerPlug) GetAntiTheftRules(children ...int) ([]byte, error) {
+	return kpp.talkToPlug(`{"anti_theft":{"get_rules":}}`)
 }
 
-//KasaEditAntiTheftRule returns the JSON required to edit an anti-theft rule
-func KasaEditAntiTheftRule(id string) string {
-	return fmt.Sprintf("{\"anti_theft\":{\"edit_rule\":{\"stime_opt\":0,\"wday\":[0,0,0,1,0,1,0],\"smin\":987,\"enable\":1,\"frequency\":5,\"repeat\":1,\"etime_opt\":0,\"id\":\"%s\",\"duration\":2,\"name\":\"test\",\"lastfor\":1,\"month\":0,\"year\":0,\"longitude\":0,\"day\":0,\"latitude\":0,\"force\":0,\"emin\":1047},\"set_overall_enable\":1}}", id)
+// AddAntiTheftRule returns the JSON reuqired to add a new anti-theft rule
+func (kpp *KasaPowerPlug) AddAntiTheftRule(children ...int) ([]byte, error) {
+	return kpp.talkToPlug(fmt.Sprintf("{\"anti_theft\":{\"add_rule\":{\"stime_opt\":0,\"wday\":[0,0,0,1,0,1,0],\"smin\":987,\"enable\":1,\"frequency\":5,\"repeat\":1,\"etime_opt\":0,\"duration\":2,\"name\":\"test\",\"lastfor\":1,\"month\":0,\"year\":0,\"longitude\":0,\"day\":0,\"latitude\":0,\"force\":0,\"emin\":1047},\"set_overall_enable\":1}}"))
 }
 
-//KasaDeleteAntiTheftRule returns the JSON required to delete an anti-theft rule with given ID
-func KasaDeleteAntiTheftRule(id string) string {
-	return fmt.Sprintf("{\"anti_theft\":{\"delete_rule\":{\"id\":\"%s\"}}}", id)
+// EditAntiTheftRule returns the JSON required to edit an anti-theft rule
+func (kpp *KasaPowerPlug) EditAntiTheftRule(id string) ([]byte, error) {
+	return kpp.talkToPlug(fmt.Sprintf("{\"anti_theft\":{\"edit_rule\":{\"stime_opt\":0,\"wday\":[0,0,0,1,0,1,0],\"smin\":987,\"enable\":1,\"frequency\":5,\"repeat\":1,\"etime_opt\":0,\"id\":\"%s\",\"duration\":2,\"name\":\"test\",\"lastfor\":1,\"month\":0,\"year\":0,\"longitude\":0,\"day\":0,\"latitude\":0,\"force\":0,\"emin\":1047},\"set_overall_enable\":1}}", id))
 }
 
-//KasaDeleteAllAntiTheftRules is the JSON to delete all the anti-theft rules
-const KasaDeleteAllAntiTheftRules = `{"anti_theft":{"delete_all_rules":}}`
+// DeleteAntiTheftRule returns the JSON required to delete an anti-theft rule with given ID
+func (kpp *KasaPowerPlug) DeleteAntiTheftRule(id string) ([]byte, error) {
+	return kpp.talkToPlug(fmt.Sprintf("{\"anti_theft\":{\"delete_rule\":{\"id\":\"%s\"}}}", id))
+}
+
+// DeleteAllAntiTheftRules is the JSON to delete all the anti-theft rules
+func (kpp *KasaPowerPlug) DeleteAllAntiTheftRules(children ...int) ([]byte, error) {
+	return kpp.talkToPlug(`{"anti_theft":{"delete_all_rules":}}`)
+}
 
 func trimJSONArray(s string) string {
 	return strings.Replace(s, `,]`, `]`, 1)

@@ -1,2 +1,4 @@
 github.com/google/uuid v1.1.0 h1:Jf4mxPC/ziBnoPIdpQdPJ9OeiomAUHLvxmPRSPH9m4s=
 github.com/google/uuid v1.1.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
+github.com/reef-pi/hal v0.0.0-20190129094001-59f71ac9bc12 h1:HkZ1QI0zpX9W3Ib004Hx6Swhi5oRQlrKYfBnuoPdrIY=
+github.com/reef-pi/hal v0.0.0-20190129094001-59f71ac9bc12/go.mod h1:zE4RsTzWwjBVXWztoQ11q6LX7A41mo5V+vDag2ozEW4=
