@@ -3,6 +3,7 @@ package kasalink
 import (
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"strings"
 	"time"
@@ -36,7 +37,7 @@ func (kpp *KasaPowerPlug) talkToPlug(KasaCommand string) (response []byte, err e
 	var (
 		bitsToSend []byte
 	)
-	//log.Printf("Command for Plug: %s\n", KasaCommand)
+	log.Printf("Command for Plug: %s\n", KasaCommand)
 	if kpp.tplinkClient == nil {
 		if kpp.timeout == 0 {
 			kpp.timeout = time.Duration(10) * time.Second
@@ -50,14 +51,14 @@ func (kpp *KasaPowerPlug) talkToPlug(KasaCommand string) (response []byte, err e
 		return
 	}
 	var bb = new(myBuff)
-	//var bytesRead int64
-	//bytesRead, err = bb.readFrom(kpp.tplinkClient)
+	var bytesRead int64
+	bytesRead, err = bb.readFrom(kpp.tplinkClient)
 	_, err = bb.readFrom(kpp.tplinkClient)
 
 	if err != nil {
 		return
 	}
-	//log.Printf("Bytes Read: %d\n", bytesRead)
+	log.Printf("Bytes Read: %d\n", bytesRead)
 	if bb.Len() >= 4 {
 		return decrypt(bb.buf[4:]), nil
 	}
