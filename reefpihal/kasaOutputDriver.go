@@ -1,9 +1,10 @@
 package reefpihal
 
 import (
-	"kasalink"
 	"sync"
 	"time"
+
+	"github.com/PaulSRock/kasalink"
 
 	"github.com/reef-pi/hal"
 )

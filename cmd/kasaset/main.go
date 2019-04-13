@@ -2,8 +2,9 @@ package main
 
 import (
 	"flag"
-	"kasalink"
 	"log"
+
+	"github.com/PaulSRock/kasalink"
 )
 
 var host = flag.String("host", "", "Hostname of the strip to talk to")

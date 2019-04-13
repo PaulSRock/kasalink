@@ -28,14 +28,13 @@ func (h *HS300OutputPin) Write(state bool) error {
 	if h.hs300.kpp.SysInfo == nil {
 		return fmt.Errorf(errPinNotInitialized)
 	}
-	var err error
-	if state && h.hs300.kpp.SysInfo.Children[h.childID].State == 0 {
-		_, err = h.hs300.kpp.TurnDeviceOff(h.childID)
+	if state {
+		_, err := h.hs300.kpp.TurnDeviceOn(h.childID)
 		if err != nil {
 			return err
 		}
-	} else if !state && h.hs300.kpp.SysInfo.Children[h.childID].State == 1 {
-		_, err = h.hs300.kpp.TurnDeviceOff(h.childID)
+	} else {
+		_, err := h.hs300.kpp.TurnDeviceOff(h.childID)
 		if err != nil {
 			return err
 		}
