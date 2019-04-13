@@ -1,7 +1,7 @@
 package reefpihal
 
 import (
-	"kasalink"
+	"github.com/PaulSRock/kasalink"
 	"sync"
 	"time"
 
