@@ -21,7 +21,5 @@ type tpLinkDevice struct {
 
 //
 func (t *tpLinkDevice) GetSystemInfo() {
-	var (
-
-	)
+	var ()
 }

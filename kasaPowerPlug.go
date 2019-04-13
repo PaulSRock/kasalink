@@ -1,8 +1,10 @@
 package kasalink
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"strings"
 	"time"
@@ -23,11 +25,15 @@ type KasaPowerPlug struct {
 // NewKasaPowerPlug gives you a new KasaPowerPlug struct that's already gotten it's system info, or an error
 // telling you why that didn't work
 func NewKasaPowerPlug(plugAddress string) (kpp *KasaPowerPlug, err error) {
-	kpp = &KasaPowerPlug{plugNetworkLocation: plugAddress}
+	kpp = &KasaPowerPlug{
+		plugNetworkLocation: plugAddress,
+		timeout:             5 * time.Second,
+	}
 	kpp.SysInfo, err = kpp.GetSystemInfo()
 	if err != nil {
 		return nil, err
 	}
+	kpp.deviceID = kpp.SysInfo.DeviceID
 	return
 }
 
@@ -36,7 +42,6 @@ func (kpp *KasaPowerPlug) talkToPlug(KasaCommand string) (response []byte, err e
 	var (
 		bitsToSend []byte
 	)
-	//log.Printf("Command for Plug: %s\n", KasaCommand)
 	if kpp.tplinkClient == nil {
 		if kpp.timeout == 0 {
 			kpp.timeout = time.Duration(10) * time.Second
@@ -44,24 +49,37 @@ func (kpp *KasaPowerPlug) talkToPlug(KasaCommand string) (response []byte, err e
 		if kpp.tplinkClient, err = net.DialTimeout("tcp", kpp.plugNetworkLocation, kpp.timeout); err != nil {
 			return
 		}
+
 	}
+
+	defer func() {
+		kpp.tplinkClient.Close()
+		kpp.tplinkClient = nil
+	}()
+
+	err = kpp.tplinkClient.SetDeadline(time.Now().Add(5 * time.Second))
+	if err != nil {
+		return nil, err
+	}
+
 	bitsToSend = encrypt(KasaCommand)
 	if _, err = kpp.tplinkClient.Write(bitsToSend); err != nil {
 		return
 	}
-	var bb = new(myBuff)
-	//var bytesRead int64
-	//bytesRead, err = bb.readFrom(kpp.tplinkClient)
-	_, err = bb.readFrom(kpp.tplinkClient)
 
+	var bodySize uint32
+	err = binary.Read(kpp.tplinkClient, binary.BigEndian, &bodySize)
 	if err != nil {
-		return
+		return nil, err
 	}
-	//log.Printf("Bytes Read: %d\n", bytesRead)
-	if bb.Len() >= 4 {
-		return decrypt(bb.buf[4:]), nil
+	var buf = make([]byte, bodySize)
+
+	_, err = io.ReadAtLeast(kpp.tplinkClient, buf, int(bodySize))
+	if err != nil {
+		return nil, err
 	}
-	return
+	pt := decrypt(buf)
+	return pt, nil
 }
 
 // tellChild is the JSON used to issue a command to individual sockets on a Kasa enabled device
