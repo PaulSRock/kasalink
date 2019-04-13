@@ -3,7 +3,7 @@ package cloud
 import "testing"
 
 func TestGetCloudToken(t *testing.T) {
-	var err = GetCloudToken("paulsrock@aol.com", "972YsLVPVP431E%OI8o9nYcE3G")
+	var err = GetCloudToken("", "")
 	if err != nil {
 		t.Fatal(err)
 	}
