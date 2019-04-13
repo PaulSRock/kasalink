@@ -2,7 +2,7 @@ package reefpihal
 
 import (
 	"fmt"
-	"kasalink"
+	"github.com/PaulSRock/kasalink"
 	"time"
 
 	"github.com/reef-pi/hal"
