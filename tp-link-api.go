@@ -40,18 +40,17 @@ const (
 )
 
 // GetSystemInfo is the is the Struct that contains info about the Kasa Device
-func (kpp *KasaPowerPlug) GetSystemInfo() (si *SystemInfo, err error) {
+func (kpp *KasaPowerPlug) GetSystemInfo() (*SystemInfo, error) {
 	if kpp.SysInfo != nil {
 		return kpp.SysInfo, nil
 	}
-	var b []byte
-	b, err = kpp.querySystemInfo()
+	b, err := kpp.querySystemInfo()
 	if err != nil {
-		return
+		return nil, err
 	}
-	kpp.SysInfo = &SystemInfo{}
-	err = json.Unmarshal(b, kpp.SysInfo)
-	return
+	si := &KasaResponse{}
+	err = json.Unmarshal(b, si)
+	return si.System.GetSysInfo, err
 }
 
 func (kpp *KasaPowerPlug) querySystemInfo(children ...int) ([]byte, error) {
