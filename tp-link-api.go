@@ -89,7 +89,7 @@ func (kpp *KasaPowerPlug) TurnDeviceOff(children ...int) ([]byte, error) {
 // DisableLED is the JSON used to turn off the LED indicator for a Kasa enabled switch or socket
 func (kpp *KasaPowerPlug) DisableLED() (wrapper *KasaResponse, err error) {
 	var jsonBytes []byte
-	jsonBytes, err = kpp.talkToPlug(turnOnLED)
+	jsonBytes, err = kpp.talkToPlug(turnOffLED)
 	if err != nil {
 		return
 	}
