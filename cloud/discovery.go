@@ -10,7 +10,7 @@ import (
 const discoveryURI = "https://wap.tplinkcloud.com?token=%s"
 
 type tpLinkDeviceList struct {
-	DeviceList []tpLinkDevice `json:"deviceList"`
+	DeviceList []TPLinkDevice `json:"deviceList"`
 }
 
 type tpLinkGetDeviceListResponse struct {
@@ -20,7 +20,7 @@ type tpLinkGetDeviceListResponse struct {
 }
 
 // GetDeviceList takes an auth Token and returns the list of devices registered to the Token's Account
-func GetDeviceList() (devices []tpLinkDevice, err error) {
+func GetDeviceList() (devices []TPLinkDevice, err error) {
 	var (
 		req         *http.Request
 		resp        *http.Response

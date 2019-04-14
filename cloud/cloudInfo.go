@@ -5,7 +5,7 @@ import "net/http"
 type tpLinkCloud struct {
 	client  *http.Client
 	token   string
-	devices *[]tpLinkDevice
+	devices *[]TPLinkDevice
 }
 
 var theCloud *tpLinkCloud
