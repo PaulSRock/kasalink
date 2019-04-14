@@ -57,7 +57,7 @@ func (h *HS300ADCChannel) Read() (float64, error) {
 		}
 		h.hs300.childInfo[h.id].EnergyMeter = rw.EnergyMeter
 	}
-	if rw.EnergyMeter.Realtime.Error != 0 {
+	if rw.EnergyMeter.Realtime.ErrorCode != 0 {
 		return 0, fmt.Errorf("error gathering power stats from plug")
 	}
 	switch h.pm {
