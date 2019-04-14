@@ -224,6 +224,9 @@ func (kpp *KasaPowerPlug) GetRealtimeCurrentAndVoltage(children ...int) (respons
 	if err != nil {
 		return
 	}
+	if response.EnergyMeter.Realtime.ErrorCode != 0 {
+		return nil, fmt.Errorf(response.EnergyMeter.Realtime.ErrorMessage)
+	}
 	return
 }
 

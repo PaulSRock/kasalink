@@ -2,15 +2,13 @@ package kasalink
 
 import (
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"strings"
 	"time"
 )
-
-var errTooLarge = errors.New("bytes.Buffer: too large")
 
 // KasaPowerPlug is the struct that holds info about and methods for talking to a Kasa Power Plug or Power Strip
 type KasaPowerPlug struct {
@@ -20,6 +18,8 @@ type KasaPowerPlug struct {
 	tplinkClient        net.Conn
 	timeout             time.Duration
 	SysInfo             *SystemInfo
+	log                 *log.Logger
+	debug               bool
 }
 
 // NewKasaPowerPlug gives you a new KasaPowerPlug struct that's already gotten it's system info, or an error
@@ -37,11 +37,18 @@ func NewKasaPowerPlug(plugAddress string) (kpp *KasaPowerPlug, err error) {
 	return
 }
 
+// SetLogger lets you give KasaPowerPlug a place to send logs. If not set, logs will disappear into the void.
+func (kpp *KasaPowerPlug) SetLogger(newLogger *log.Logger) {
+	kpp.log = newLogger
+}
+
 // TalkToPlug sends a command to the plug and returns a response json and error error
 func (kpp *KasaPowerPlug) talkToPlug(KasaCommand string) (response []byte, err error) {
 	var (
 		bitsToSend []byte
+		bitsWeRead []byte
 	)
+
 	if kpp.tplinkClient == nil {
 		if kpp.timeout == 0 {
 			kpp.timeout = time.Duration(10) * time.Second
@@ -49,16 +56,14 @@ func (kpp *KasaPowerPlug) talkToPlug(KasaCommand string) (response []byte, err e
 		if kpp.tplinkClient, err = net.DialTimeout("tcp", kpp.plugNetworkLocation, kpp.timeout); err != nil {
 			return
 		}
-
 	}
 
-	defer func() {
-		kpp.tplinkClient.Close()
-		kpp.tplinkClient = nil
-	}()
+	// so you would think that a defer, close here would be good, but it can cause a race condition when there are
+	// multiple successive calls to the power plug - the if state above can eval as true, then the defer closes
+	// the tcp connection, and we end with a "use of closed network connection" error
+	//defer kpp.closer()
 
-	err = kpp.tplinkClient.SetDeadline(time.Now().Add(5 * time.Second))
-	if err != nil {
+	if err = kpp.tplinkClient.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
 		return nil, err
 	}
 
@@ -67,7 +72,22 @@ func (kpp *KasaPowerPlug) talkToPlug(KasaCommand string) (response []byte, err e
 		return
 	}
 
-	var bodySize uint32
+	if bitsWeRead, err = kpp.readResponse(); err != nil {
+		return
+	}
+
+	bitsWeRead = decrypt(bitsWeRead)
+	if kpp.debug && kpp.log != nil {
+		kpp.log.Printf("Received:\n%s\n", bitsWeRead)
+	}
+	return bitsWeRead, nil
+}
+
+func (kpp *KasaPowerPlug) readResponse() ([]byte, error) {
+	var (
+		bodySize uint32
+		err      error
+	)
 	err = binary.Read(kpp.tplinkClient, binary.BigEndian, &bodySize)
 	if err != nil {
 		return nil, err
@@ -78,8 +98,7 @@ func (kpp *KasaPowerPlug) talkToPlug(KasaCommand string) (response []byte, err e
 	if err != nil {
 		return nil, err
 	}
-	pt := decrypt(buf)
-	return pt, nil
+	return buf, nil
 }
 
 // tellChild is the JSON used to issue a command to individual sockets on a Kasa enabled device
@@ -112,4 +131,13 @@ func (kpp *KasaPowerPlug) Close() error {
 	}
 	// the net.Conn object is nil, so nothing to close, return nil
 	return nil
+}
+
+func (kpp *KasaPowerPlug) closer() {
+	var err error
+	if err = kpp.Close(); err != nil {
+		if kpp.log != nil {
+			kpp.log.Println("Error closing down tcp client: ", err)
+		}
+	}
 }

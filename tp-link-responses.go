@@ -114,9 +114,10 @@ type realtimeEnergyMeter struct {
 	Current    int `json:"current_ma"`
 	Power      int `json:"power_mw"`
 	TotalWatts int `json:"total_wh"`
-	Error      int `json:"err_code"`
+	thingWithErrCode
 }
 
 type thingWithErrCode struct {
-	ErrorCode int `json:"err_code"`
+	ErrorCode    int    `json:"err_code,omitempty"`
+	ErrorMessage string `json:"err_msg,omitempty"`
 }
